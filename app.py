@@ -20,8 +20,8 @@ CORS(app, resources={r"/api/*": cors_config})
 # ══════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
 # ══════════════════════════════════════════════════════════════
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8578415094:AAFIbQglTSUmxX3IK4nQfuayvmQfDh-aYjM')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1003526160154')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8499803362:AAHxkqI11-YbYgHvjQZf3l7EkpTHanKOe14')
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1002904816351')
 WEBHOOK_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
 sessions_db = {}
